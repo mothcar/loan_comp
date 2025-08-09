@@ -184,6 +184,22 @@
           }));
         };
 
+        const calculateDifference = () => {
+        const total1 = calculateTotalExpense(
+          condition1.principal,
+          condition1.monthlyInterestRate,
+          condition1.months,
+          condition1.feePercentage
+        );
+        const total2 = calculateTotalExpense(
+          condition2.principal,
+          condition2.monthlyInterestRate,
+          condition2.months,
+          condition2.feePercentage
+        );
+        return Math.abs(total1 - total2);
+      };
+
         const formatNumber = (num) => {
           return num.toLocaleString("ko-KR");
         };
@@ -309,6 +325,12 @@
               <h2 className="text-xl font-semibold mb-2 text-center">
                 총지출 비교
               </h2>
+              <div className="flex items-center justify-center mb-2">
+              <h2 className="text-xl font-semibold mr-4">Total Expense Comparison</h2>
+              <p className="text-lg">
+                차액: ₩{formatNumber(calculateDifference())}
+              </p>
+            </div>
               <canvas
                 id="expenseChart"
                 ref={chartRef}
