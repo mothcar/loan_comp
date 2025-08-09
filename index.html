@@ -1,0 +1,325 @@
+<script type="text/javascript">
+  var gk_isXlsx = false;
+  var gk_xlsxFileLookup = {};
+  var gk_fileData = {};
+  function filledCell(cell) {
+    return cell !== "" && cell != null;
+  }
+  function loadFileData(filename) {
+    if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+      try {
+        var workbook = XLSX.read(gk_fileData[filename], { type: "base64" });
+        var firstSheetName = workbook.SheetNames[0];
+        var worksheet = workbook.Sheets[firstSheetName];
+
+        // Convert sheet to JSON to filter blank rows
+        var jsonData = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          blankrows: false,
+          defval: "",
+        });
+        // Filter out blank rows (rows where all cells are empty, null, or undefined)
+        var filteredData = jsonData.filter((row) => row.some(filledCell));
+
+        // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+        var headerRowIndex = filteredData.findIndex(
+          (row, index) =>
+            row.filter(filledCell).length >=
+            filteredData[index + 1]?.filter(filledCell).length
+        );
+        // Fallback
+        if (headerRowIndex === -1 || headerRowIndex > 25) {
+          headerRowIndex = 0;
+        }
+
+        // Convert filtered JSON back to CSV
+        var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+        csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+        return csv;
+      } catch (e) {
+        console.error(e);
+        return "";
+      }
+    }
+    return gk_fileData[filename] || "";
+  }
+</script>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>대출 비교표</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.6/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+
+      const calculateTotalExpense = (
+        principal,
+        monthlyInterestRate,
+        months,
+        feePercentage
+      ) => {
+        const interest = principal * (monthlyInterestRate / 100) * months;
+        const fee = principal * (feePercentage / 100);
+        return interest + fee;
+      };
+
+      const LoanComparison = () => {
+        const [condition1, setCondition1] = useState({
+          principal: 15000000000,
+          monthlyInterestRate: 1.5,
+          months: 3,
+          feePercentage: 5,
+        });
+
+        const [condition2, setCondition2] = useState({
+          principal: 15000000000,
+          monthlyInterestRate: 0.8,
+          months: 3,
+          feePercentage: 10,
+        });
+
+        const chartRef = useRef(null);
+        const chartInstanceRef = useRef(null);
+
+        const updateChart = () => {
+          const total1 = calculateTotalExpense(
+            condition1.principal,
+            condition1.monthlyInterestRate,
+            condition1.months,
+            condition1.feePercentage
+          );
+          const total2 = calculateTotalExpense(
+            condition2.principal,
+            condition2.monthlyInterestRate,
+            condition2.months,
+            condition2.feePercentage
+          );
+
+          const data = {
+            labels: ["조건 1", "조건 2"],
+            datasets: [
+              {
+                label: "총지출",
+                data: [total1, total2],
+                backgroundColor: [
+                  "rgba(75, 192, 192, 0.6)",
+                  "rgba(255, 99, 132, 0.6)",
+                ],
+                borderColor: ["rgba(75, 192, 192, 1)", "rgba(255, 99, 132, 1)"],
+                borderWidth: 1,
+              },
+            ],
+          };
+
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+          }
+
+          const ctx = chartRef.current.getContext("2d");
+          chartInstanceRef.current = new Chart(ctx, {
+            type: "bar",
+            data: data,
+            options: {
+              responsive: true,
+              scales: {
+                y: {
+                  beginAtZero: false,
+                  min: Math.min(total1, total2) * 0.95,
+                  title: {
+                    display: true,
+                    text: "총지출",
+                  },
+                  ticks: {
+                    callback: function (value) {
+                      return "₩" + value.toLocaleString("ko-KR");
+                    },
+                  },
+                },
+              },
+              plugins: {
+                legend: {
+                  display: true,
+                },
+                tooltip: {
+                  callbacks: {
+                    label: function (context) {
+                      return `₩${context.parsed.y.toLocaleString("ko-KR")}`;
+                    },
+                  },
+                },
+              },
+            },
+          });
+        };
+
+        useEffect(() => {
+          updateChart();
+          return () => {
+            if (chartInstanceRef.current) {
+              chartInstanceRef.current.destroy();
+            }
+          };
+        }, [condition1, condition2]);
+
+        const handleInputChange = (condition, setCondition) => (e) => {
+          const { name, value } = e.target;
+          setCondition((prev) => ({
+            ...prev,
+            [name]:
+              name === "feePercentage"
+                ? parseInt(value) || 0
+                : parseFloat(value) || 0,
+          }));
+        };
+
+        const formatNumber = (num) => {
+          return num.toLocaleString("ko-KR");
+        };
+
+        return (
+          <div className="container mx-auto p-4">
+            <h1 className="text-2xl font-bold mb-4 text-center">대출 비교표</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 border rounded shadow">
+                <h2 className="text-xl font-semibold mb-2">조건 1</h2>
+                <div className="mb-2">
+                  <label className="block">총대출금:</label>
+                  <input
+                    type="number"
+                    name="principal"
+                    value={condition1.principal}
+                    onChange={handleInputChange(condition1, setCondition1)}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block">월이자 (%):</label>
+                  <input
+                    type="number"
+                    name="monthlyInterestRate"
+                    value={condition1.monthlyInterestRate}
+                    onChange={handleInputChange(condition1, setCondition1)}
+                    step="0.1"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block">사용개월수 (월):</label>
+                  <input
+                    type="number"
+                    name="months"
+                    value={condition1.months}
+                    onChange={handleInputChange(condition1, setCondition1)}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block">수수료(%):</label>
+                  <input
+                    type="number"
+                    name="feePercentage"
+                    value={condition1.feePercentage}
+                    onChange={handleInputChange(condition1, setCondition1)}
+                    step="1"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <p className="mt-2">
+                  총지출액: ₩
+                  {formatNumber(
+                    calculateTotalExpense(
+                      condition1.principal,
+                      condition1.monthlyInterestRate,
+                      condition1.months,
+                      condition1.feePercentage
+                    )
+                  )}
+                </p>
+              </div>
+              <div className="p-4 border rounded shadow">
+                <h2 className="text-xl font-semibold mb-2">조건 2</h2>
+                <div className="mb-2">
+                  <label className="block">총대출금:</label>
+                  <input
+                    type="number"
+                    name="principal"
+                    value={condition2.principal}
+                    onChange={handleInputChange(condition2, setCondition2)}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block">월이자 (%):</label>
+                  <input
+                    type="number"
+                    name="monthlyInterestRate"
+                    value={condition2.monthlyInterestRate}
+                    onChange={handleInputChange(condition2, setCondition2)}
+                    step="0.1"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block">사용개월수 (월):</label>
+                  <input
+                    type="number"
+                    name="months"
+                    value={condition2.months}
+                    onChange={handleInputChange(condition2, setCondition2)}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="block">수수료 (%):</label>
+                  <input
+                    type="number"
+                    name="feePercentage"
+                    value={condition2.feePercentage}
+                    onChange={handleInputChange(condition2, setCondition2)}
+                    step="1"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <p className="mt-2">
+                  총지출액: ₩
+                  {formatNumber(
+                    calculateTotalExpense(
+                      condition2.principal,
+                      condition2.monthlyInterestRate,
+                      condition2.months,
+                      condition2.feePercentage
+                    )
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="mt-8">
+              <h2 className="text-xl font-semibold mb-2 text-center">
+                총지출 비교
+              </h2>
+              <canvas
+                id="expenseChart"
+                ref={chartRef}
+                className="w-full h-64"
+              ></canvas>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<LoanComparison />, document.getElementById("root"));
+    </script>
+  </body>
+</html>
